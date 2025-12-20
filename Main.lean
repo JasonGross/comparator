@@ -103,9 +103,6 @@ def runKernel (solution : Comparator.ExportedEnv) : M Unit := do
   -- Lean's kernel interprets just the addition of `Quot as adding all of these so adding them
   -- multiple times leads to errors.
   constMap := constMap.erase `Quot.mk |>.erase `Quot.lift |>.erase `Quot.ind
-  -- Similarly, when Eq is added to the environment, its constructor and recursors are
-  -- automatically generated, so we need to erase them to avoid duplicates.
-  constMap := constMap.erase `Eq.refl |>.erase `Eq.rec |>.erase `Eq.ndrec |>.erase `Eq.casesOn
   discard <| env.replay' constMap
   IO.println "Solution valid."
 
@@ -121,9 +118,9 @@ def verifyMatch (challengeExport : String) (solutionExport : String) : M Unit :=
 def compareIt : M Unit := do
   let challengeModule ← getChallengeModule
   -- Include built-in constants that the kernel expects.
-  -- Eq is a fundamental built-in inductive type that may not be automatically included
-  -- in the export if not explicitly listed, but is required by the kernel for replay.
-  let builtInConstants := #[`Eq]
+  -- Eq (and its constructor Eq.refl) are fundamental constants that may not be automatically
+  -- included in the export if not explicitly listed, but are required by the kernel for replay.
+  let builtInConstants := #[`Eq, `Eq.refl]
   let exportTargets := builtInConstants ++ (← getTheoremNames) ++ (← getLegalAxioms)
   safeLakeBuild challengeModule
   let challengeExport ← safeExport challengeModule exportTargets
