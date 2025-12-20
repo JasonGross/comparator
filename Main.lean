@@ -118,7 +118,7 @@ def verifyMatch (challengeExport : String) (solutionExport : String) : M Unit :=
 def compareIt : M Unit := do
   let challengeModule ← getChallengeModule
   -- Include built-in constants that the kernel expects.
-  -- Eq (and its constructor Eq.refl) are fundamental constants that may not be automatically
+  -- Eq (and Eq.refl) are fundamental constants that may not be automatically
   -- included in the export if not explicitly listed, but are required by the kernel for replay.
   let builtInConstants := #[`Eq, `Eq.refl]
   let exportTargets := builtInConstants ++ (← getTheoremNames) ++ (← getLegalAxioms)
