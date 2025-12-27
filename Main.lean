@@ -16,6 +16,8 @@ structure Context where
   theoremNames : Array Lean.Name
   legalAxioms : Array Lean.Name
   allowPartial : Bool
+  validChallengeKinds : Array String
+  ignoreChallengeBodyKinds : Array String
 
 abbrev M := ReaderT Context IO
 
@@ -43,6 +45,12 @@ def getLegalAxioms : M (Array Lean.Name) := do return (← read).legalAxioms
 
 @[inline]
 def getAllowPartial : M Bool := do return (← read).allowPartial
+
+@[inline]
+def getValidChallengeKinds : M (Array String) := do return (← read).validChallengeKinds
+
+@[inline]
+def getIgnoreChallengeBodyKinds : M (Array String) := do return (← read).ignoreChallengeBodyKinds
 
 def landrunArgs (writablePaths : Array System.FilePath) (env : Array String) : Array String :=
   let base := #["--best-effort", "--rox", "/", "--rw", "/dev"]
@@ -113,7 +121,8 @@ def runKernel (solution : Comparator.ExportedEnv) : M Unit := do
 def verifyMatch (challengeExport : String) (solutionExport : String) : M Unit := do
   let challenge ← IO.ofExcept <| Comparator.parse challengeExport
   let solution ← IO.ofExcept <| Comparator.parse solutionExport
-  IO.ofExcept <| Comparator.compareAt challenge solution (← getTheoremNames) (← getLegalAxioms)
+  let targets := (← getTheoremNames) ++ (← getLegalAxioms)
+  IO.ofExcept <| Comparator.compareAt challenge solution targets (← getValidChallengeKinds) (← getIgnoreChallengeBodyKinds)
   IO.ofExcept <| Comparator.checkAxioms solution (← getTheoremNames) (← getLegalAxioms) (← getAllowPartial)
   runKernel solution
 
@@ -137,6 +146,8 @@ structure Config where
   theorem_names : Array String
   permitted_axioms : Array String
   allow_partial : Option Bool := none
+  valid_challenge_kinds : Option (Array String) := none
+  ignore_challenge_body_kinds : Option (Array String) := none
   deriving Lean.FromJson, Lean.ToJson, Repr
 
 def M.run (x : M α) (cfg : Config) : IO α := do
@@ -146,6 +157,8 @@ def M.run (x : M α) (cfg : Config) : IO α := do
     challengeModule := cfg.challenge_module.toName,
     solutionModule := cfg.solution_module.toName,
     allowPartial := cfg.allow_partial.getD false,
+    validChallengeKinds := cfg.valid_challenge_kinds.getD #["axiom", "theorem"],
+    ignoreChallengeBodyKinds := cfg.ignore_challenge_body_kinds.getD #["axiom", "theorem"],
     theoremNames := cfg.theorem_names.map String.toName,
     legalAxioms := cfg.permitted_axioms.map String.toName,
   }

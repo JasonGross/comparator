@@ -57,23 +57,27 @@ partial def loop : CompareM Unit := do
 
 end Compare
 
-def compareAt (challenge solution : ExportedEnv) (targets axioms : Array Lean.Name) :
-    Except String Unit := do
-  let mut worklist := targets
-  let targetNames := Std.HashSet.ofArray targets
-  let targetsAndAxioms := targets ++ axioms
+def compareAt (challenge solution : ExportedEnv) (names : Array Lean.Name)
+    (validChallengeKinds : Array String := #["axiom", "theorem"])
+    (ignoreChallengeBodyKinds : Array String := #["axiom", "theorem"])
+    : Except String Unit := do
+  let mut targetNames : Std.HashSet Lean.Name := {}
 
-  for target in targetsAndAxioms do
-    let some challengeConst := challenge.constMap[target]?
-      | throw s!"Const not found in challenge: '{target}'"
+  for name in names do
+    let some challengeConst := challenge.constMap[name]?
+      | throw s!"Const not found in challenge: '{name}'"
 
-    match challengeConst with
-    | .thmInfo _ | .axiomInfo _ => pure ()
-    | _ => throw s!"Challenge must be theorem or axiom not {Utils.constantKindName challengeConst}: '{target}'"
+    let kind := Utils.constantKindName challengeConst
+
+    if !validChallengeKinds.contains kind then
+      throw s!"Challenge must be {validChallengeKinds} not {kind}: '{name}'"
+
+    if ignoreChallengeBodyKinds.contains kind then
+      targetNames := targetNames.insert name
 
   let prog := do
-    targetsAndAxioms.forM Compare.addWorklist
+    names.forM Compare.addWorklist
     Compare.loop
-  prog.run { challenge, solution, targetNames } |>.run' { worklist, checked := {} }
+  prog.run { challenge, solution, targetNames } |>.run' { worklist := names, checked := {} }
 
 end Comparator
