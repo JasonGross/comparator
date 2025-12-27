@@ -164,8 +164,10 @@ def verifyMatch (challengeExport : String) (solutionExport : String) : M Unit :=
 
     -- Build JSON output
     let scoresJson := Lean.Json.mkObj (scores.toList.map fun (k, v) => (k, Lean.toJson v))
-    IO.println s!"\n<grade>\n{scoresJson.compress}\n</grade>"
+    IO.println s!"<grade>\n{scoresJson.compress}\n</grade>"
     IO.println s!"Passed: {passCount}/{theoremNames.size}"
+    if passCount != theoremNames.size then
+      throw <| .userError "Not all targets passed"
   else
     let compareResult ← IO.ofExcept <| Comparator.compareAt challenge solution targets validKinds ignoreBodyKinds
     let forbiddenAxs ← IO.ofExcept <| Comparator.checkAxioms solution theoremNames legalAxioms allowPartial
