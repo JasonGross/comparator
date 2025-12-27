@@ -55,7 +55,80 @@ partial def loop : CompareM Unit := do
     modify fun s => { s with checked := s.checked.insert target }
     loop
 
+namespace Grade
+
+structure Context where
+  challenge : ExportedEnv
+  solution : ExportedEnv
+  targetNames : Std.HashSet Lean.Name
+
+structure State where
+  worklist : Array Lean.Name
+  checked : Std.HashSet Lean.Name
+  typeMismatches : Array Lean.Name
+  bodyMismatches : Array Lean.Name
+
+abbrev GradeM := ReaderT Context <| StateT State <| Except String
+
+def addWorklist (n : Lean.Name) : GradeM Unit := do
+  if !(← get).checked.contains n then
+    modify fun s => { s with worklist := s.worklist.push n }
+
+partial def loop : GradeM Unit := do
+  if (← get).worklist.isEmpty then
+    return ()
+
+  let target ← modifyGet fun s => (s.worklist.back!, { s with worklist := s.worklist.pop })
+  if (← get).checked.contains target then
+    loop
+  else
+    let some solutionConst := (← read).solution.constMap[target]?
+      | throw s!"Const not found in target '{target}'"
+
+    if let some challengeConst := (← read).challenge.constMap[target]? then
+      if (← read).targetNames.contains target then
+        if challengeConst.toConstantVal != solutionConst.toConstantVal then
+          modify fun s => { s with typeMismatches := s.typeMismatches.push target }
+      else
+        if challengeConst != solutionConst then
+          modify fun s => { s with bodyMismatches := s.bodyMismatches.push target }
+
+    runForUsedConsts solutionConst addWorklist
+
+    modify fun s => { s with checked := s.checked.insert target }
+    loop
+
+end Grade
+
 end Compare
+
+structure CompareGradeResult where
+  typeMismatches : Array Lean.Name
+  bodyMismatches : Array Lean.Name
+
+def compareAtGrade (challenge solution : ExportedEnv) (names : Array Lean.Name)
+    (validChallengeKinds : Array String := #["axiom", "theorem"])
+    (ignoreChallengeBodyKinds : Array String := #["axiom", "theorem"])
+    : Except String CompareGradeResult := do
+  let mut targetNames : Std.HashSet Lean.Name := {}
+
+  for name in names do
+    let some challengeConst := challenge.constMap[name]?
+      | throw s!"Const not found in challenge: '{name}'"
+
+    let kind := Utils.constantKindName challengeConst
+
+    if !validChallengeKinds.contains kind then
+      throw s!"Challenge must be {validChallengeKinds} not {kind}: '{name}'"
+
+    if ignoreChallengeBodyKinds.contains kind then
+      targetNames := targetNames.insert name
+
+  let prog := do
+    names.forM Compare.Grade.addWorklist
+    Compare.Grade.loop
+  let (_, state) ← prog.run { challenge, solution, targetNames } |>.run { worklist := names, checked := {}, typeMismatches := #[], bodyMismatches := #[] }
+  return { typeMismatches := state.typeMismatches, bodyMismatches := state.bodyMismatches }
 
 def compareAt (challenge solution : ExportedEnv) (names : Array Lean.Name)
     (validChallengeKinds : Array String := #["axiom", "theorem"])

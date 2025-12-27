@@ -18,6 +18,7 @@ structure Context where
   allowPartial : Bool
   validChallengeKinds : Array String
   ignoreChallengeBodyKinds : Array String
+  grade : Bool
 
 abbrev M := ReaderT Context IO
 
@@ -51,6 +52,9 @@ def getValidChallengeKinds : M (Array String) := do return (← read).validChall
 
 @[inline]
 def getIgnoreChallengeBodyKinds : M (Array String) := do return (← read).ignoreChallengeBodyKinds
+
+@[inline]
+def getGrade : M Bool := do return (← read).grade
 
 def landrunArgs (writablePaths : Array System.FilePath) (env : Array String) : Array String :=
   let base := #["--best-effort", "--rox", "/", "--rw", "/dev"]
@@ -118,12 +122,56 @@ def runKernel (solution : Comparator.ExportedEnv) : M Unit := do
   discard <| env.replay' constMap
   IO.println "Solution valid."
 
+structure TargetScore where
+  compare : Bool
+  axioms : Bool
+  mismatched_types : Array String
+  mismatched_bodies : Array String
+  forbidden_axioms : Array String
+  deriving Lean.ToJson
+
 def verifyMatch (challengeExport : String) (solutionExport : String) : M Unit := do
   let challenge ← IO.ofExcept <| Comparator.parse challengeExport
   let solution ← IO.ofExcept <| Comparator.parse solutionExport
-  let targets := (← getTheoremNames) ++ (← getLegalAxioms)
-  IO.ofExcept <| Comparator.compareAt challenge solution targets (← getValidChallengeKinds) (← getIgnoreChallengeBodyKinds)
-  IO.ofExcept <| Comparator.checkAxioms solution (← getTheoremNames) (← getLegalAxioms) (← getAllowPartial)
+  let theoremNames ← getTheoremNames
+  let legalAxioms ← getLegalAxioms
+  let targets := theoremNames ++ legalAxioms
+  let validKinds ← getValidChallengeKinds
+  let ignoreBodyKinds ← getIgnoreChallengeBodyKinds
+  let allowPartial ← getAllowPartial
+
+  if ← getGrade then
+    let mut scores : Lean.RBMap String TargetScore compare := {}
+    let mut passCount := 0
+
+    for target in theoremNames do
+      -- Run compareAtGrade for this target
+      let compareResult ← IO.ofExcept <| Comparator.compareAtGrade challenge solution #[target] validKinds ignoreBodyKinds
+      -- Run checkAxiomsGrade for this target
+      let forbiddenAxs ← IO.ofExcept <| Comparator.checkAxiomsGrade solution #[target] legalAxioms allowPartial
+
+      let comparePass := compareResult.typeMismatches.isEmpty && compareResult.bodyMismatches.isEmpty
+      let axiomsPass := forbiddenAxs.isEmpty
+      if comparePass && axiomsPass then
+        passCount := passCount + 1
+
+      let score : TargetScore := {
+        compare := comparePass
+        axioms := axiomsPass
+        mismatched_types := compareResult.typeMismatches.map (·.toString)
+        mismatched_bodies := compareResult.bodyMismatches.map (·.toString)
+        forbidden_axioms := forbiddenAxs.map (·.toString)
+      }
+      scores := scores.insert (target.toString) score
+
+    -- Build JSON output
+    let scoresJson := Lean.Json.mkObj (scores.toList.map fun (k, v) => (k, Lean.toJson v))
+    IO.println s!"\n<grade>\n{scoresJson.compress}\n</grade>"
+    IO.println s!"Passed: {passCount}/{theoremNames.size}"
+  else
+    IO.ofExcept <| Comparator.compareAt challenge solution targets validKinds ignoreBodyKinds
+    IO.ofExcept <| Comparator.checkAxioms solution theoremNames legalAxioms allowPartial
+
   runKernel solution
 
 def compareIt : M Unit := do
@@ -148,6 +196,7 @@ structure Config where
   allow_partial : Option Bool := none
   valid_challenge_kinds : Option (Array String) := none
   ignore_challenge_body_kinds : Option (Array String) := none
+  grade : Option Bool := none
   deriving Lean.FromJson, Lean.ToJson, Repr
 
 def M.run (x : M α) (cfg : Config) : IO α := do
@@ -159,6 +208,7 @@ def M.run (x : M α) (cfg : Config) : IO α := do
     allowPartial := cfg.allow_partial.getD false,
     validChallengeKinds := cfg.valid_challenge_kinds.getD #["axiom", "theorem"],
     ignoreChallengeBodyKinds := cfg.ignore_challenge_body_kinds.getD #["axiom", "theorem"],
+    grade := cfg.grade.getD false,
     theoremNames := cfg.theorem_names.map String.toName,
     legalAxioms := cfg.permitted_axioms.map String.toName,
   }
