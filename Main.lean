@@ -145,10 +145,8 @@ def verifyMatch (challengeExport : String) (solutionExport : String) : M Unit :=
     let mut passCount := 0
 
     for target in theoremNames do
-      -- Run compareAtGrade for this target
-      let compareResult ← IO.ofExcept <| Comparator.compareAtGrade challenge solution #[target] validKinds ignoreBodyKinds
-      -- Run checkAxiomsGrade for this target
-      let forbiddenAxs ← IO.ofExcept <| Comparator.checkAxiomsGrade solution #[target] legalAxioms allowPartial
+      let compareResult ← IO.ofExcept <| Comparator.compareAt challenge solution #[target] validKinds ignoreBodyKinds
+      let forbiddenAxs ← IO.ofExcept <| Comparator.checkAxioms solution #[target] legalAxioms allowPartial
 
       let comparePass := compareResult.typeMismatches.isEmpty && compareResult.bodyMismatches.isEmpty
       let axiomsPass := forbiddenAxs.isEmpty
@@ -169,8 +167,18 @@ def verifyMatch (challengeExport : String) (solutionExport : String) : M Unit :=
     IO.println s!"\n<grade>\n{scoresJson.compress}\n</grade>"
     IO.println s!"Passed: {passCount}/{theoremNames.size}"
   else
-    IO.ofExcept <| Comparator.compareAt challenge solution targets validKinds ignoreBodyKinds
-    IO.ofExcept <| Comparator.checkAxioms solution theoremNames legalAxioms allowPartial
+    let compareResult ← IO.ofExcept <| Comparator.compareAt challenge solution targets validKinds ignoreBodyKinds
+    let forbiddenAxs ← IO.ofExcept <| Comparator.checkAxioms solution theoremNames legalAxioms allowPartial
+
+    if !compareResult.typeMismatches.isEmpty then
+      IO.eprintln s!"Type mismatches: {compareResult.typeMismatches}"
+      throw <| .userError "Type mismatches detected"
+    if !compareResult.bodyMismatches.isEmpty then
+      IO.eprintln s!"Body mismatches: {compareResult.bodyMismatches}"
+      throw <| .userError "Body mismatches detected"
+    if !forbiddenAxs.isEmpty then
+      IO.eprintln s!"Forbidden axioms: {forbiddenAxs}"
+      throw <| .userError "Forbidden axioms detected"
 
   runKernel solution
 
