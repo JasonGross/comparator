@@ -19,6 +19,7 @@ structure Context where
   validChallengeKinds : Array String
   ignoreChallengeBodyKinds : Array String
   grade : Bool
+  allowAllAxioms : Bool
 
 abbrev M := ReaderT Context IO
 
@@ -55,6 +56,9 @@ def getIgnoreChallengeBodyKinds : M (Array String) := do return (← read).ignor
 
 @[inline]
 def getGrade : M Bool := do return (← read).grade
+
+@[inline]
+def getAllowAllAxioms : M Bool := do return (← read).allowAllAxioms
 
 def landrunArgs (writablePaths : Array System.FilePath) (env : Array String) : Array String :=
   let base := #["--best-effort", "--rox", "/", "--rw", "/dev"]
@@ -139,6 +143,7 @@ def verifyMatch (challengeExport : String) (solutionExport : String) : M Unit :=
   let validKinds ← getValidChallengeKinds
   let ignoreBodyKinds ← getIgnoreChallengeBodyKinds
   let allowPartial ← getAllowPartial
+  let allowAllAxioms ← getAllowAllAxioms
 
   if ← getGrade then
     let mut scores : Lean.RBMap String TargetScore compare := {}
@@ -146,7 +151,8 @@ def verifyMatch (challengeExport : String) (solutionExport : String) : M Unit :=
 
     for target in theoremNames do
       let compareResult ← IO.ofExcept <| Comparator.compareAt challenge solution #[target] validKinds ignoreBodyKinds
-      let forbiddenAxs ← IO.ofExcept <| Comparator.checkAxioms solution #[target] legalAxioms allowPartial
+      let forbiddenAxs ← if allowAllAxioms then pure #[]
+        else IO.ofExcept <| Comparator.checkAxioms solution #[target] legalAxioms allowPartial
 
       let comparePass := compareResult.typeMismatches.isEmpty && compareResult.bodyMismatches.isEmpty
       let axiomsPass := forbiddenAxs.isEmpty
@@ -170,7 +176,8 @@ def verifyMatch (challengeExport : String) (solutionExport : String) : M Unit :=
       throw <| .userError "Not all targets passed"
   else
     let compareResult ← IO.ofExcept <| Comparator.compareAt challenge solution targets validKinds ignoreBodyKinds
-    let forbiddenAxs ← IO.ofExcept <| Comparator.checkAxioms solution theoremNames legalAxioms allowPartial
+    let forbiddenAxs ← if allowAllAxioms then pure #[]
+      else IO.ofExcept <| Comparator.checkAxioms solution theoremNames legalAxioms allowPartial
 
     if !compareResult.typeMismatches.isEmpty then
       IO.eprintln s!"Type mismatches: {compareResult.typeMismatches}"
@@ -207,6 +214,7 @@ structure Config where
   valid_challenge_kinds : Option (Array String) := none
   ignore_challenge_body_kinds : Option (Array String) := none
   grade : Option Bool := none
+  allow_all_axioms : Option Bool := none
   deriving Lean.FromJson, Lean.ToJson, Repr
 
 def M.run (x : M α) (cfg : Config) : IO α := do
@@ -219,6 +227,7 @@ def M.run (x : M α) (cfg : Config) : IO α := do
     validChallengeKinds := cfg.valid_challenge_kinds.getD #["axiom", "theorem"],
     ignoreChallengeBodyKinds := cfg.ignore_challenge_body_kinds.getD #["axiom", "theorem"],
     grade := cfg.grade.getD false,
+    allowAllAxioms := cfg.allow_all_axioms.getD false,
     theoremNames := cfg.theorem_names.map String.toName,
     legalAxioms := cfg.permitted_axioms.map String.toName,
   }
