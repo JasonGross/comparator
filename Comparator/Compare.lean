@@ -13,7 +13,7 @@ namespace Compare
 structure Context where
   challenge : ExportedEnv
   solution : ExportedEnv
-  targetNames : Std.HashSet Lean.Name
+  challengeNames : Std.HashSet Lean.Name
 
 structure State where
   worklist : Array Lean.Name
@@ -45,7 +45,7 @@ partial def loop : CompareM Unit := do
 
     if let some challengeConst := (← read).challenge.constMap[target]? then
       -- Solution constant values don't need to match, since the challenges are expected to be axioms
-      if (← read).targetNames.contains target then
+      if (← read).challengeNames.contains target then
         if challengeConst.toConstantVal != solutionConst.toConstantVal then
           modify fun s => { s with typeMismatches := s.typeMismatches.push target }
       else
@@ -63,13 +63,17 @@ structure CompareResult where
   typeMismatches : Array Lean.Name
   bodyMismatches : Array Lean.Name
 
-def compareAt (challenge solution : ExportedEnv) (names : Array Lean.Name)
+def compareAt (challenge solution : ExportedEnv) (names : Array Lean.Name) (allChallengeNames : Array Lean.Name)
     (validChallengeKinds : Array String := #["axiom", "theorem"])
     (ignoreChallengeBodyKinds : Array String := #["axiom", "theorem"])
     : Except String CompareResult := do
-  let mut targetNames : Std.HashSet Lean.Name := {}
+  let mut challengeNames : Std.HashSet Lean.Name := {}
 
   for name in names do
+    if !allChallengeNames.contains name then
+      throw s!"Challenge must be in {allChallengeNames}: '{name}'"
+
+  for name in allChallengeNames do
     let some challengeConst := challenge.constMap[name]?
       | throw s!"Const not found in challenge: '{name}'"
 
@@ -79,12 +83,12 @@ def compareAt (challenge solution : ExportedEnv) (names : Array Lean.Name)
       throw s!"Challenge must be {validChallengeKinds} not {kind}: '{name}'"
 
     if ignoreChallengeBodyKinds.contains kind then
-      targetNames := targetNames.insert name
+      challengeNames := challengeNames.insert name
 
   let prog := do
     names.forM Compare.addWorklist
     Compare.loop
-  let (_, state) ← prog.run { challenge, solution, targetNames } |>.run { worklist := names, checked := {}, typeMismatches := #[], bodyMismatches := #[] }
+  let (_, state) ← prog.run { challenge, solution, challengeNames } |>.run { worklist := #[], checked := {}, typeMismatches := #[], bodyMismatches := #[] }
   return { typeMismatches := state.typeMismatches, bodyMismatches := state.bodyMismatches }
 
 end Comparator

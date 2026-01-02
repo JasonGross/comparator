@@ -150,7 +150,7 @@ def verifyMatch (challengeExport : String) (solutionExport : String) : M Unit :=
     let mut passCount := 0
 
     for target in theoremNames do
-      let compareResult ← IO.ofExcept <| Comparator.compareAt challenge solution #[target] validKinds ignoreBodyKinds
+      let compareResult ← IO.ofExcept <| Comparator.compareAt challenge solution #[target] targets validKinds ignoreBodyKinds
       let forbiddenAxs ← if allowAllAxioms then pure #[]
         else IO.ofExcept <| Comparator.checkAxioms solution #[target] legalAxioms allowPartial
 
@@ -175,7 +175,7 @@ def verifyMatch (challengeExport : String) (solutionExport : String) : M Unit :=
     if passCount != theoremNames.size then
       throw <| .userError "Not all targets passed"
   else
-    let compareResult ← IO.ofExcept <| Comparator.compareAt challenge solution targets validKinds ignoreBodyKinds
+    let compareResult ← IO.ofExcept <| Comparator.compareAt challenge solution targets targets validKinds ignoreBodyKinds
     let forbiddenAxs ← if allowAllAxioms then pure #[]
       else IO.ofExcept <| Comparator.checkAxioms solution theoremNames legalAxioms allowPartial
 
